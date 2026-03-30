@@ -202,6 +202,19 @@ def combine(snotel_files, nwm_files, StartDate, EndDate):
 
     return combined_df
 
+
+def load_snotel_data(requested_sites):
+    """Load SNOTEL CSV files from the Gagliano station repository."""
+    snotel_data = {}
+    for site in requested_sites:
+        url = f"https://raw.githubusercontent.com/egagli/snotel_ccss_stations/main/data/{site}.csv"
+        try:
+            snotel_data[site] = pd.read_csv(url)
+            print(f"Loaded {site}: {len(snotel_data[site])} rows")
+        except Exception as e:
+            print(f"Error loading {site}: {e}")
+    return snotel_data
+
 def get_usgs_streamflow(site_id, start_date="1980-01-01", end_date=datetime.datetime.today().strftime('%Y-%m-%d')):
     """
     Retrieves daily mean streamflow data from USGS NWIS.
@@ -341,4 +354,3 @@ if __name__ == "__main__":
 	StartDate = sys.argv[4]
 	EndDate = sys.argv[5]
 	OutputFolder = sys.argv[6]
-	
