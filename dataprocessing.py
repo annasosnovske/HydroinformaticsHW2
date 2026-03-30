@@ -34,7 +34,7 @@ of the min, mean, median, max SWE for each day of the water year across all othe
 of data available for that site to avoid skewing the results with an extreme water year
 like 2026
 '''
-def processSNOTEL(site, stateab, WYOI, sitedf=None):
+def processSNOTEL(site, stateab, WYOI, sitedf=None, drop_wyoi_from_stats=True):
     print(site)
     if sitedf is None:
         local_csv = f"files/SNOTEL/df_{site}_{stateab}_SNTL.csv"
@@ -61,67 +61,56 @@ def processSNOTEL(site, stateab, WYOI, sitedf=None):
                 f"Unexpected SNOTEL schema for {site}. Columns found: {list(sitedf.columns)}"
             )
 
-    WYs = sitedf['Water_Year'].unique()
+    # Build a day-of-water-year table (rows: month-day, cols: water years, values: SWE inches).
+    work = sitedf.copy()
+    work['Date'] = pd.to_datetime(work['Date'])
+    work['M'] = work['Date'].dt.month
+    work['D'] = work['Date'].dt.day
+    work['SWE_in'] = pd.to_numeric(work['Snow Water Equivalent (m) Start of Day Values'], errors='coerce').fillna(0) * 39.3701
 
-    WYsitedf = pd.DataFrame()
+    #remove August and September
+    months = [8, 9]
+    work = work[~work['M'].isin(months)]
 
-    for WY in WYs:
-        cols =['M', 'D', 'Snow Water Equivalent (m) Start of Day Values']
+    pivot = work.pivot_table(index=['M', 'D'], columns='Water_Year', values='SWE_in', aggfunc='mean')
 
-        #get water year of interest
-        wydf = sitedf[sitedf['Water_Year']==WY].copy()
-        wydf['M'] = pd.to_datetime(wydf['Date']).dt.month
-        wydf['D'] = pd.to_datetime(wydf['Date']).dt.day
+    # Remove leap day so synthetic plotting dates are always valid.
+    pivot = pivot[~((pivot.index.get_level_values(0) == 2) & (pivot.index.get_level_values(1) == 29))]
 
-        #change NaN to 0, most NaN values are from low to 0 SWE measurements
-        wydf['Snow Water Equivalent (m) Start of Day Values'] = wydf['Snow Water Equivalent (m) Start of Day Values'].fillna(0)
-        wydf = wydf[cols]
-        wydf.rename(columns = {'Snow Water Equivalent (m) Start of Day Values':f"{WY}_SWE_m"}, inplace=True)
-        wydf.reset_index(inplace=True, drop=True)
-        WYsitedf[f"{WY}_SWE_in"] = wydf[f"{WY}_SWE_m"]*39.3701 #converting m to inches (standard for snotel)
+    # Sort in water-year order: Oct -> Jul.
+    pivot = pivot.reset_index()
+    pivot['wy_order'] = (pivot['M'] + 2) % 12
+    pivot = pivot.sort_values(['wy_order', 'M', 'D']).drop(columns=['wy_order'])
 
-        if len(wydf) == 365:
-            try:
-                WYsitedf.insert(0,'M',wydf['M'])
-                WYsitedf.insert(1,'D',wydf['D'])
-            except:
-                pass
-    #WYsitedf.fillna(0)
+    wyoi_col = f"{WYOI}_SWE_in"
+    year_cols = [c for c in pivot.columns if isinstance(c, (int, float))]
+    pivot.columns = ['M', 'D'] + [f"{int(c)}_SWE_in" for c in year_cols]
 
-    #remove July, August, September
-    months = [8,9]
-    WYsitedf = WYsitedf[~WYsitedf['M'].isin(months)]
+    stats_df = pivot.copy()
 
-    #remove M/D to calculate row min, mean, median, max tiers
-    df = WYsitedf.copy()
-    #drop the water year of interest from WYsitedf to calculate the min, mean, median, max SWE for each day of the water year across all other years of data available for that site
-    
-    print(f"Dropping {WYOI} from the calculations of the min, mean, median, max SWE for each day of the water year across all other years of data available for that site")
-    try:
-        WYOIdrop = f"{WYOI}_SWE_in"
-        coldrop = ['M', 'D', WYOIdrop]
-        WYsitedf = WYsitedf.drop(columns = coldrop)
-    except:
-        print(f"{WYOI} not found in the data, not dropping any columns")
-    
-    
-    df['min'] = WYsitedf.min(axis=1)
-    df['Q10'] = WYsitedf.quantile(0.10, axis=1)
-    df['Q25'] = WYsitedf.quantile(0.25, axis=1)
-    df['mean'] = WYsitedf.mean(axis=1)
-    df['median'] = WYsitedf.median(axis=1)
-    df['Q75'] = WYsitedf.quantile(0.75, axis=1)
-    df['Q90'] = WYsitedf.quantile(0.90, axis=1)
-    df['max'] = WYsitedf.max(axis=1)
+    # Optionally drop the year of interest from stats; disable for all-time climatology.
+    if drop_wyoi_from_stats:
+        print(f"Dropping {WYOI} from the calculations of the min, mean, median, max SWE for each day of the water year across all other years of data available for that site")
+        if wyoi_col in stats_df.columns:
+            stats_df = stats_df.drop(columns=[wyoi_col])
+        else:
+            print(f"{WYOI} not found in the data, not dropping any columns")
+    else:
+        print(f"Keeping {WYOI} in climatology statistics (all-time mode)")
 
-    #add back in M/d for plotting
-    # df.insert(0,'M',WYsitedf['M'])
-    # df.insert(1,'D',WYsitedf['D'])
+    value_cols = [c for c in stats_df.columns if c.endswith('_SWE_in')]
+    df = pivot.copy()
+    df['min'] = stats_df[value_cols].min(axis=1)
+    df['Q10'] = stats_df[value_cols].quantile(0.10, axis=1)
+    df['Q25'] = stats_df[value_cols].quantile(0.25, axis=1)
+    df['mean'] = stats_df[value_cols].mean(axis=1)
+    df['median'] = stats_df[value_cols].median(axis=1)
+    df['Q75'] = stats_df[value_cols].quantile(0.75, axis=1)
+    df['Q90'] = stats_df[value_cols].quantile(0.90, axis=1)
+    df['max'] = stats_df[value_cols].max(axis=1)
 
-    # Convert to datetime format
-    df['date'] = pd.to_datetime(dict(year = 2023, month = df['M'], day = df['D'])) 
-
-    # Format the date
+    # Convert to synthetic datetime for index formatting, then set MM-DD index.
+    df['date'] = pd.to_datetime(dict(year=2023, month=df['M'], day=df['D']))
     df['M-D'] = df['date'].dt.strftime('%m-%d')
     df.set_index('M-D', inplace=True)
 
