@@ -5,14 +5,17 @@ import pandas as pd
 
 
 
-def SNOTELPlots(sitedict, gdf_in_bbox, WY, watershed, AOI, DOI,plot = True):
+def SNOTELPlots(sitedict, gdf_in_bbox, WY, watershed, AOI, DOI, plot=True, plot_all_years=False):
     
     #get the number of plots to make based on number of sites in the watershed
     num_plots = len(sitedict)
     #get the number of rows based on 2 columns
     num_rows = (num_plots + 1) // 2
 
-    title = f'Snow Outlook for {watershed} Basin \n {AOI} for WY {WY}'
+    if plot_all_years:
+        title = f'Snow Outlook for {watershed} Basin \n {AOI} (All Years)'
+    else:
+        title = f'Snow Outlook for {watershed} Basin \n {AOI} for WY {WY}'
 
     #set the plot up so that it has 2 columns and the number of rows based on the number of sites in the watershed
     #automatically adjust the size of the plot based on the number of rows
@@ -41,8 +44,13 @@ def SNOTELPlots(sitedict, gdf_in_bbox, WY, watershed, AOI, DOI,plot = True):
             axs[i].fill_between(df.index, df['Q25'], df['Q10'], color = 'yellow', alpha = opacity, label = 'Q25')
             axs[i].fill_between(df.index, df['Q10'], df['min'], color = 'red', alpha = opacity, label = 'Q10')
 
-            #Plotting year of interest
-            axs[i].plot(df[WYOI], color = 'black', label = f"WY {WY}")
+            # Plot either all historical year traces or just year of interest.
+            if plot_all_years:
+                year_cols = [c for c in df.columns if c.endswith('_SWE_in')]
+                for c in year_cols:
+                    axs[i].plot(df[c], color='dimgray', alpha=0.12, linewidth=0.8)
+            else:
+                axs[i].plot(df[WYOI], color='black', label=f"WY {WY}")
 
               # Plot vertical line at a specific date
             axs[i].axvline(DOI, color='black', linestyle='--')
@@ -56,15 +64,18 @@ def SNOTELPlots(sitedict, gdf_in_bbox, WY, watershed, AOI, DOI,plot = True):
             
             mpeak = max(df['median'])
             mpeakday = f"{WY}-{df.index[df['median']==mpeak][0]}"
-            WYpeak = max(df[WYOI])
-            WYpeakday = f"{WY}-{df.index[df[WYOI]==WYpeak][0]}"
-            doivalue = df.loc[DOI, WYOI] if DOI in df.index else None
-            doimed = df.loc[DOI, 'median'] if DOI in df.index else None
-            PSWEDiff_day = (pd.to_datetime(WYpeakday)-pd.to_datetime(mpeakday)).days
-            medpercPeak = round(doivalue/mpeak *100, 0)
-            medperc = round(doivalue/doimed *100, 0)
-
-            textstr = f"DOI: {WY}-{DOI} \n % of median - {medperc}%  \n % of median peak - {medpercPeak}% \n Peak SWE Date: {WYpeakday}  \n Days from Median Peak - {PSWEDiff_day}"
+            if plot_all_years:
+                year_cols = [c for c in df.columns if c.endswith('_SWE_in')]
+                textstr = f"DOI: {WY}-{DOI} \n Historical traces: {len(year_cols)} years \n Median peak date: {mpeakday}"
+            else:
+                WYpeak = max(df[WYOI])
+                WYpeakday = f"{WY}-{df.index[df[WYOI]==WYpeak][0]}"
+                doivalue = df.loc[DOI, WYOI] if DOI in df.index else None
+                doimed = df.loc[DOI, 'median'] if DOI in df.index else None
+                PSWEDiff_day = (pd.to_datetime(WYpeakday)-pd.to_datetime(mpeakday)).days
+                medpercPeak = round(doivalue/mpeak *100, 0)
+                medperc = round(doivalue/doimed *100, 0)
+                textstr = f"DOI: {WY}-{DOI} \n % of median - {medperc}%  \n % of median peak - {medpercPeak}% \n Peak SWE Date: {WYpeakday}  \n Days from Median Peak - {PSWEDiff_day}"
             props = dict(boxstyle='round', facecolor='white', alpha=0.5)
             axs[i].text(0.05, 0.95, textstr, transform=axs[i].transAxes, fontsize=6,
                     verticalalignment='top', bbox=props)
@@ -76,6 +87,10 @@ def SNOTELPlots(sitedict, gdf_in_bbox, WY, watershed, AOI, DOI,plot = True):
          # Set axis labels
         axs[i].set_xlabel('Date')
         axs[i].set_ylabel('SWE (inches)')
+
+    # Hide any unused subplot slots (e.g., single-station case in a 2-column grid).
+    for j in range(len(sitedict), len(axs)):
+        axs[j].set_visible(False)
 
  
             
