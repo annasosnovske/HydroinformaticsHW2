@@ -4,8 +4,8 @@ import os
 import geopandas as gpd
 import numpy as np
 
-import dataprocessing
-import getData
+from supporting_scripts import dataprocessing
+from supporting_scripts import getData
 from pynhd import NLDI
 
 
